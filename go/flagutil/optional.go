@@ -18,6 +18,7 @@ package flagutil
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/spf13/pflag"
@@ -29,39 +30,37 @@ import (
 // Though not part of the interface, because the return type would be different
 // for each implementation, by convention, each implementation should define a
 // Get() method to access the underlying value.
-//
-// TODO (ajm188) - replace this interface with a generic type.
-// c.f. https://github.com/vitessio/vitess/issues/11154.
 type OptionalFlag interface {
 	pflag.Value
 	IsSet() bool
 }
 
 var (
-	_ OptionalFlag = (*OptionalFloat64)(nil)
-	_ OptionalFlag = (*OptionalString)(nil)
+	_ OptionalFlag = (*OptionalFlagGeneric[any])(nil)
 )
 
-// OptionalFloat64 implements OptionalFlag for float64 values.
-type OptionalFloat64 struct {
-	val float64
-	set bool
+// OptionalFlagGeneric implements OptionalFlag for any value.
+type OptionalFlagGeneric[T any] struct {
+	val    T
+	parser func(string) (T, error)
+	set    bool
 }
 
-// NewOptionalFloat64 returns an OptionalFloat64 with the specified value as its
-// starting value.
-func NewOptionalFloat64(val float64) *OptionalFloat64 {
-	return &OptionalFloat64{
-		val: val,
-		set: false,
+// NewOptionalGeneric returns an OptionalFlagGeneric with the specified value as its
+// starting value. The value is parsed using the parser provided
+func NewOptionalGeneric[T any](val T, parser func(string) (T, error)) *OptionalFlagGeneric[T] {
+	return &OptionalFlagGeneric[T]{
+		val:    val,
+		parser: parser,
+		set:    false,
 	}
 }
 
 // Set is part of the pflag.Value interface.
-func (f *OptionalFloat64) Set(arg string) error {
-	v, err := strconv.ParseFloat(arg, 64)
+func (f *OptionalFlagGeneric[T]) Set(arg string) error {
+	v, err := f.parser(arg)
 	if err != nil {
-		return numError(err)
+		return err
 	}
 
 	f.val = v
@@ -71,67 +70,60 @@ func (f *OptionalFloat64) Set(arg string) error {
 }
 
 // String is part of the pflag.Value interface.
-func (f *OptionalFloat64) String() string {
-	return strconv.FormatFloat(f.val, 'g', -1, 64)
+func (f *OptionalFlagGeneric[T]) String() string {
+	return fmt.Sprintf("%v", f.val)
 }
 
 // Type is part of the pflag.Value interface.
-func (f *OptionalFloat64) Type() string {
-	return "float64"
+func (f *OptionalFlagGeneric[T]) Type() string {
+	return fmt.Sprintf("%T", f.val)
 }
 
-// Get returns the underlying float64 value of this flag. If the flag was not
+// Get returns the underlying value of this flag. If the flag was not
 // explicitly set, this will be the initial value passed to the constructor.
-func (f *OptionalFloat64) Get() float64 {
+func (f *OptionalFlagGeneric[T]) Get() T {
 	return f.val
 }
 
 // IsSet is part of the OptionalFlag interface.
-func (f *OptionalFloat64) IsSet() bool {
+func (f *OptionalFlagGeneric[T]) IsSet() bool {
 	return f.set
 }
 
-// OptionalString implements OptionalFlag for string values.
-type OptionalString struct {
-	val string
+// OptionalFloat64 implements OptionalFlag for float64 values.
+type OptionalFloat64 struct {
+	val float64
 	set bool
 }
 
-// NewOptionalString returns an OptionalString with the specified value as its
+// NewOptionalFloat64 returns an *OptionalFlagGeneric[float64] with the specified value as its
 // starting value.
-func NewOptionalString(val string) *OptionalString {
-	return &OptionalString{
-		val: val,
-		set: false,
+func NewOptionalFloat64(val float64) *OptionalFlagGeneric[float64] {
+	return &OptionalFlagGeneric[float64]{
+		val:    val,
+		parser: float64Parser,
+		set:    false,
 	}
 }
 
-// Set is part of the pflag.Value interface.
-func (f *OptionalString) Set(arg string) error {
-	f.val = arg
-	f.set = true
-	return nil
+// parses a float from a string as float64
+func float64Parser(arg string) (v float64, err error) {
+	v, err = strconv.ParseFloat(arg, 64)
+	if err != nil {
+		return v, numError(err)
+	}
+
+	return v, nil
 }
 
-// String is part of the pflag.Value interface.
-func (f *OptionalString) String() string {
-	return f.val
-}
-
-// Type is part of the pflag.Value interface.
-func (f *OptionalString) Type() string {
-	return "string"
-}
-
-// Get returns the underlying string value of this flag. If the flag was not
-// explicitly set, this will be the initial value passed to the constructor.
-func (f *OptionalString) Get() string {
-	return f.val
-}
-
-// IsSet is part of the OptionalFlag interface.
-func (f *OptionalString) IsSet() bool {
-	return f.set
+// NewOptionalString returns an OptionalFlagGeneric[string] with the specified value as its
+// starting value.
+func NewOptionalString(val string) *OptionalFlagGeneric[string] {
+	return &OptionalFlagGeneric[string]{
+		val:    val,
+		parser: func(s string) (string, error) { return s, nil },
+		set:    false,
+	}
 }
 
 // lifted directly from package flag to make the behavior of numeric parsing
